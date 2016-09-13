@@ -31,6 +31,12 @@ dim(samsungData)
 ```{r ls-features}
 colnames(samsungData)
 ```
+### check for miss values
+
+```{r missing}
+
+```
+
 ### boxplot
 - see the range of data for each feature
 - Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
@@ -45,5 +51,19 @@ for (i in seq(1,last_feature_index, 50)) {
   boxplot(samsungData[,i:end], main=paste("[",i, ",",(i+50), "]"))
 }
 ```
+
+####Understand the features:
+- @everone
+
+####Data exploratory analysis tasks:
+- check for missing values
+- look at the distribution of subject and class labels (see if is balance)
+- look at distribution of each feature
+
+####Research tasks:
+- @everone
+- read about **feature selections**
+
+
 
 
