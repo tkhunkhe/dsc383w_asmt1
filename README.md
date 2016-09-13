@@ -1,3 +1,10 @@
+Initial steps (assume that you have git)
+- go to the directory you want to have this project in
+- git clone https://github.com/tkhunkhe/dsc383w_asmt1.git
+
+* you must download your .rda file from blackboard and make your data/ directory and add the .rda file to it*
+
+
 0. pull the current update from the github repository
 	- git pull origin master
 0.1. check out new branch to work on something
