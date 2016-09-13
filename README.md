@@ -1,6 +1,6 @@
 Initial steps (assume that you have git)
 - go to the directory you want to have this project in
-- git clone https://github.com/tkhunkhe/dsc383w_asmt1.git
+- <pre><code>git clone https://github.com/tkhunkhe/dsc383w_asmt1.git</code></pre>
 
 * you must download your .rda file from blackboard and make your data/ directory and add the .rda file to it*
 
