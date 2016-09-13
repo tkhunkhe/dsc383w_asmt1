@@ -16,15 +16,34 @@ When you click the **Knit** button a document will be generated that includes bo
 ## load data
 ```{r data}
 load("data/samsungData.rda") # load data
-#summary(samsungData)
+dim(samsungData)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+### dimension
+```{r dim-data}
+dimdata = dim(samsungData)
+dim(samsungData)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Data exploratory analysis
+### list all features 
+- note that column number 562 is subject (number), and 563 is class label
+```{r ls-features}
+colnames(samsungData)
+```
+### boxplot
+- see the range of data for each feature
+- Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r boxplot, echo=TRUE}
+last_feature_index = dimdata[2]-2
+for (i in seq(1,last_feature_index, 50)) {
+  if (i+50 < last_feature_index) {
+    end = i + 50
+  } else {
+    end =last_feature_index
+  }
+  boxplot(samsungData[,i:end], main=paste("[",i, ",",(i+50), "]"))
+}
+```
+
+
