@@ -24,23 +24,39 @@ dim(samsungData)
 dimdata = dim(samsungData)
 dim(samsungData)
 ```
-### summary of class label 
-```{r check-class-label}
-summary(factor(samsungData[, dimdata[2]]))
-```
 
-
-## Data exploratory analysis
 ### list all features 
 - note that column number 562 is subject (number), and 563 is class label
 ```{r ls-features}
 colnames(samsungData)
 ```
+
+### summary of class label 
+```{r check-class-label}
+summary(factor(samsungData[, dimdata[2]]))
+```
+
+### summary of subject numbers
+```{r check-subject-numbers}
+summary(factor(samsungData[, dimdata[2]-1]))
+plot(summary(factor(samsungData[, dimdata[2]-1])))
+barplot(summary(factor(samsungData[, dimdata[2]-1])), cex.names =0.6)
+title("number of data points for each subject")
+```
+
+### summary of class labels per subject
+@Lauren
+```{r check-class-per-subject}
+
+```
+
+
 ### check for miss values
 
 ```{r missing}
 
 ```
+
 
 ### boxplot
 - see the range of data for each feature
@@ -58,7 +74,7 @@ for (i in seq(1,last_feature_index, 50)) {
 ```
 
 ####Understand the features:
-- @everone
+- @**everone**
 
 ####Data exploratory analysis tasks:
 - check for missing values
