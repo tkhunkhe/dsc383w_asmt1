@@ -24,6 +24,11 @@ dim(samsungData)
 dimdata = dim(samsungData)
 dim(samsungData)
 ```
+### summary of class label 
+```{r check-class-label}
+summary(factor(samsungData[, dimdata[2]]))
+```
+
 
 ## Data exploratory analysis
 ### list all features 
