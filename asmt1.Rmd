@@ -47,7 +47,10 @@ title("number of data points for each subject")
 ### summary of class labels per subject
 @Lauren
 ```{r check-class-per-subject}
-
+my_df<- data.frame(table(samsungData$subject, samsungData$activity)[,])
+plot(my_df)
+barplot(t(as.matrix(my_df)), beside = TRUE, main = "number of datapoints for each activity per subject", col = c(3,4,6,7,3,1))
+legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2)
 ```
 
 
