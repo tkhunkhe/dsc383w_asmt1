@@ -31,6 +31,15 @@ dim(samsungData)
 colnames(samsungData)
 ```
 
+### Fix duplicated column names
+- 
+```{r fix-duplicates}
+samsungData.new = samsungData[,!duplicated(colnames(samsungData))]
+dim(samsungData.new)
+```
+
+
+
 ### summary of class label 
 ```{r check-class-label}
 summary(factor(samsungData[, dimdata[2]]))
@@ -45,21 +54,12 @@ title("number of data points for each subject")
 ```
 
 ### summary of class labels per subject
-@Lauren
 ```{r check-class-per-subject}
-my_df<- data.frame(table(samsungData$subject, samsungData$activity)[,])
+my_df = data.frame(table(samsungData$subject, samsungData$activity)[,])
 plot(my_df)
 barplot(t(as.matrix(my_df)), beside = TRUE, main = "number of datapoints for each activity per subject", col = c(3,4,6,7,3,1))
 legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2)
 ```
-
-
-### check for miss values
-
-```{r missing}
-
-```
-
 
 ### boxplot
 - see the range of data for each feature
@@ -75,6 +75,72 @@ for (i in seq(1,last_feature_index, 50)) {
   boxplot(samsungData[,i:end], main=paste("[",i, ",",(i+50), "]"))
 }
 ```
+
+### Split data into training and test set
+- split by subjects
+- ramdomly select 80% for test and 20% for test
+```{r split, echo=TRUE}
+set.seed(123) # set seeed for reproducable
+subject_list = attributes(factor(samsungData.new[,dim(samsungData.new)[2]-1]))$levels
+training_ratio = 0.8
+n_train = floor(training_ratio*length(subject_list))
+trainning_subjects = sample(subject_list, n_train, replace = FALSE)
+test_subjects = subject_list[!(subject_list%in%trainning_indices)]
+
+trainning_indices = which( samsungData.new[,"subject"]%in%trainning_subjects)
+test_indices = which(!samsungData.new[,"subject"]%in%trainning_subjects)
+
+write.table(samsungData.new, file = "samsungData.new.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+
+write.table(samsungData.new[trainning_indices,], file = "samsungData.new.train.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+
+write.table(samsungData.new[test_indices,], file = "samsungData.new.test.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+
+
+
+```
+
+### Feature Selection
+```{r feature-selection, echo=TRUE}
+## load modules
+library(caret)
+library(randomForest)
+library(h2o)
+localH2O = h2o.init(ip = "localhost",  startH2O = TRUE)
+samsungData.csv = read.csv("samsungData.new.csv", check.names = FALSE)
+is.factor(samsungData.csv[,dim(samsungData.csv)[2]]) # confirm if the class label column is factor
+samsungData.hex = h2o.uploadFile(path = "samsungData.new.train.csv")
+dim(samsungData.hex)
+ncol = dim(samsungData.hex)[2]
+x = colnames(samsungData.hex)[-(ncol-1:ncol)]
+y = colnames(samsungData.hex)[ncol]
+model = h2o.randomForest(x, y, samsungData.hex)
+plot(model@model$variable_importances$relative_importance, type = "l")
+top5_important_feature = model@model$variable_importances$variable[1:5]
+top4_important_feature = model@model$variable_importances$variable[1:4]
+top3_important_feature = model@model$variable_importances$variable[1:3]
+
+### use only the top 5 features
+x.reduced = top5_important_feature
+model.with.5.features = h2o.randomForest(x.reduced, y, samsungData.hex)
+x.reduced = top4_important_feature
+model.with.4.features = h2o.randomForest(x.reduced, y, samsungData.hex)
+x.reduced = top3_important_feature
+model.with.3.features = h2o.randomForest(x.reduced, y, samsungData.hex)
+
+error = c()
+models = list(model.with.5.features, model.with.4.features, model.with.3.features)
+for (i in 1:length(models)){
+  error[i] = h2o.confusionMatrix(models[[i]])['Totals','Error']
+}
+accuracy = 1 - error
+par(mfrow=c(1,1), mar=c(0.5,0.5,1,0.5))
+plot(5:3, accuracy, type="l", xlab = "number of features", ylab = "accuracy")
+abline(h = 0.8, lty=2)
+title("Accuracy of random forest models trained with different number of features", cex.main=0.8)
+
+```
+
 
 ####Understand the features:
 - @**everone**
