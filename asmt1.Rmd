@@ -54,6 +54,15 @@ legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2)
 ```
 
 
+### Test
+```{r name}
+plot(samsungData[,561])
+
+```
+
+
+
+
 ### check for miss values
 
 ```{r missing}
