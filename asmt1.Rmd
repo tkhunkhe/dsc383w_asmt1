@@ -13,6 +13,8 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
+## Data Exploratory
+
 ## load data
 ```{r data}
 load("data/samsungData.rda") # load data
@@ -34,11 +36,19 @@ colnames(samsungData)
 ### Fix duplicated column names
 - 
 ```{r fix-duplicates}
-samsungData.new = samsungData[,!duplicated(colnames(samsungData))]
+
+duplicated_columns = unique(colnames(samsungData)[(duplicated(colnames(samsungData)))])
+samsungData.new = samsungData[,!duplicated_columns]
 dim(samsungData.new)
+
+## adding .index to each duplicated column
+for (each in duplicated_columns){
+  ind = which(colnames(samsungData)==each)
+  colnames(samsungData)[ind]= unlist(lapply(1:length(ind), function(i) paste(colnames(samsungData)[ind[i]], i, sep=".") ))
+}
+colnames(samsungData)
+
 ```
-
-
 
 ### summary of class label 
 ```{r check-class-label}
@@ -78,81 +88,136 @@ for (i in seq(1,last_feature_index, 50)) {
 
 ### Split data into training and test set
 - split by subjects
-- ramdomly select 80% for test and 20% for test
+- ramdomly select 80% for train and 20% for test
 ```{r split, echo=TRUE}
-set.seed(123) # set seeed for reproducable
-subject_list = attributes(factor(samsungData.new[,dim(samsungData.new)[2]-1]))$levels
-training_ratio = 0.8
-n_train = floor(training_ratio*length(subject_list))
-trainning_subjects = sample(subject_list, n_train, replace = FALSE)
-test_subjects = subject_list[!(subject_list%in%trainning_indices)]
 
-trainning_indices = which( samsungData.new[,"subject"]%in%trainning_subjects)
-test_indices = which(!samsungData.new[,"subject"]%in%trainning_subjects)
+split_data = function (data, seed) {
+  set.seed(seed) # set seeed for reproducibility
+  subject_list = attributes(factor(data[,dim(data)[2]-1]))$levels
+  training_ratio = 0.8
+  n_train = floor(training_ratio*length(subject_list))
+  trainning_subjects = sample(subject_list, n_train, replace = FALSE)
+  test_subjects = subject_list[!(subject_list%in%trainning_indices)]
+  
+  trainning_indices = which( data[,"subject"]%in%trainning_subjects)
+  test_indices = which(!data[,"subject"]%in%trainning_subjects)
+  
+  write.table(data, file = "data.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+  
+  write.table(data[trainning_indices,], file = "samsungData_fixed-duplicated-columns.train.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+  
+  write.table(data[test_indices,], file = "samsungData_fixed-duplicated-columns.test.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+  
+}
 
-write.table(samsungData.new, file = "samsungData.new.csv", row.names = FALSE, col.names = TRUE, sep = "," )
-
-write.table(samsungData.new[trainning_indices,], file = "samsungData.new.train.csv", row.names = FALSE, col.names = TRUE, sep = "," )
-
-write.table(samsungData.new[test_indices,], file = "samsungData.new.test.csv", row.names = FALSE, col.names = TRUE, sep = "," )
-
+split_data(data = samsungData, seed = 123)
 
 
 ```
 
-### Feature Selection
-```{r feature-selection, echo=TRUE}
-## load modules
-library(caret)
-library(randomForest)
+## Feature Selection
+
+### Train
+- using Random forest in h2o.ai package
+- 10-fold cross-validation
+- use seed = 123 for reproducibility reason
+```{r feature-selection-random-forest, echo=TRUE}
+## load modules and start h2o compute node
 library(h2o)
 localH2O = h2o.init(ip = "localhost",  startH2O = TRUE)
-samsungData.csv = read.csv("samsungData.new.csv", check.names = FALSE)
-is.factor(samsungData.csv[,dim(samsungData.csv)[2]]) # confirm if the class label column is factor
-samsungData.hex = h2o.uploadFile(path = "samsungData.new.train.csv")
+samsungData.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.train.csv")
 dim(samsungData.hex)
 ncol = dim(samsungData.hex)[2]
-x = colnames(samsungData.hex)[-(ncol-1:ncol)]
+x = colnames(samsungData.hex)[-((ncol-1):ncol)]
 y = colnames(samsungData.hex)[ncol]
-model = h2o.randomForest(x, y, samsungData.hex)
-plot(model@model$variable_importances$relative_importance, type = "l")
+
+# classification with random forest, and get the top most important features used
+model = h2o.randomForest(x, y, seed = 123, samsungData.hex, nfolds = 10)
+
+```
+
+#### baseline accuracy
+##### confusion matrix
+```{r baseline-accuracy}
+h2o.confusionMatrix(model)
+```
+
+##### total accuracy
+```{r baseline-confusion-matrix}
+1 - h2o.confusionMatrix(model)['Totals','Error']
+```
+
+#### select top features for to train classification models (random forest)
+```{r feature-selection-top}
+# select top features
 top5_important_feature = model@model$variable_importances$variable[1:5]
 top4_important_feature = model@model$variable_importances$variable[1:4]
 top3_important_feature = model@model$variable_importances$variable[1:3]
 
-### use only the top 5 features
-x.reduced = top5_important_feature
-model.with.5.features = h2o.randomForest(x.reduced, y, samsungData.hex)
-x.reduced = top4_important_feature
-model.with.4.features = h2o.randomForest(x.reduced, y, samsungData.hex)
-x.reduced = top3_important_feature
-model.with.3.features = h2o.randomForest(x.reduced, y, samsungData.hex)
-
-error = c()
-models = list(model.with.5.features, model.with.4.features, model.with.3.features)
-for (i in 1:length(models)){
-  error[i] = h2o.confusionMatrix(models[[i]])['Totals','Error']
-}
-accuracy = 1 - error
-par(mfrow=c(1,1), mar=c(0.5,0.5,1,0.5))
-plot(5:3, accuracy, type="l", xlab = "number of features", ylab = "accuracy")
-abline(h = 0.8, lty=2)
-title("Accuracy of random forest models trained with different number of features", cex.main=0.8)
+### Train models, starting from using top 3 importand features until 80% accuracy is acchieved
+model.with.3.features = h2o.randomForest(top3_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+model.with.4.features = h2o.randomForest(top4_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+model.with.5.features = h2o.randomForest(top5_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
 
 ```
 
+#### accuracy plot
+```{r compute-train-accuracy}
+accuracy = c()
+model_list = list( model.with.3.features,model.with.4.features, model.with.5.features,)
+for (i in 1:length(models)){
+  accuracy[i] = as.numeric(models[[i]]@model$cross_validation_metrics_summary['accuracy','mean'])
+}
+accuracy
+```
 
-####Understand the features:
-- @**everone**
+```{r accuracy-plot}
+par(mfrow=c(1,1), mar=c(1,1,1,1), cex.axis = 0.8)
+plot(5:3, accuracy, type="l")
+abline(h = 0.8, lty=2)
+title("Accuracy of random forest models trained with different number of features", cex.main=0.8, xlab = "number of features", ylab = "accuracy")
+```
 
-####Data exploratory analysis tasks:
-- check for missing values
-- look at the distribution of subject and class labels (see if is balance)
-- look at distribution of each feature
+#### view the selected features
+- 5 features
+- classification accuracy >= 0.8
+```{r view-selected-features}
+top5_important_feature
+```
 
-####Research tasks:
-- @everone
-- read about **feature selections**
+#### view the confusion matrix of model using 5 features
+```{r view-train-confusion-matrix}
+h2o.confusionMatrix(model.with.5.features)
+```
+
+
+### Test
+- using the 5 selected features
+```{r load-test-data-to-h2o}
+samsungData.test.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.test.csv")
+dim(samsungData.test.hex)
+ncol = dim(samsungData.test.hex)[2]
+x = top5_important_feature
+y = colnames(samsungData.test.hex)[ncol]
+
+# classification of the test data with random forest
+model.test = h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
+```
+
+#### view the test results
+
+##### confusion matrix
+```{r confusion-matrix}
+h2o.confusionMatrix(model.test)
+test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
+test.accuracy
+```
+
+##### test accuracy
+```{r test-accuracy}
+test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
+test.accuracy
+```
 
 
 
