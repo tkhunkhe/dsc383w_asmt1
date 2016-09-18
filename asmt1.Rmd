@@ -7,38 +7,31 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
 ## Data Exploratory
 
-## load data
+#### load data
 ```{r data}
 load("data/samsungData.rda") # load data
 dim(samsungData)
 ```
 
-### dimension
+#### dimension
 ```{r dim-data}
 dimdata = dim(samsungData)
 dim(samsungData)
 ```
 
-### list all features 
+#### list all features 
 - note that column number 562 is subject (number), and 563 is class label
 ```{r ls-features}
 colnames(samsungData)
 ```
 
-### Fix duplicated column names
-- 
+#### Fix duplicated column names
 ```{r fix-duplicates}
-
-duplicated_columns = unique(colnames(samsungData)[(duplicated(colnames(samsungData)))])
-samsungData.new = samsungData[,!duplicated_columns]
+duplicated_index = which(duplicated(colnames(samsungData)))
+duplicated_columns =unique(colnames(samsungData)[(duplicated(colnames(samsungData)))])
+samsungData.new = samsungData[,!(duplicated(colnames(samsungData)))]
 dim(samsungData.new)
 
 ## adding .index to each duplicated column
@@ -46,7 +39,7 @@ for (each in duplicated_columns){
   ind = which(colnames(samsungData)==each)
   colnames(samsungData)[ind]= unlist(lapply(1:length(ind), function(i) paste(colnames(samsungData)[ind[i]], i, sep=".") ))
 }
-colnames(samsungData)
+head(colnames(samsungData)[duplicated_index])
 
 ```
 
@@ -58,22 +51,22 @@ summary(factor(samsungData[, dimdata[2]]))
 ### summary of subject numbers
 ```{r check-subject-numbers}
 summary(factor(samsungData[, dimdata[2]-1]))
-plot(summary(factor(samsungData[, dimdata[2]-1])))
 barplot(summary(factor(samsungData[, dimdata[2]-1])), cex.names =0.6)
 title("number of data points for each subject")
 ```
 
 ### summary of class labels per subject
 ```{r check-class-per-subject}
-my_df = data.frame(table(samsungData$subject, samsungData$activity)[,])
-plot(my_df)
+my_df = table(samsungData$subject, samsungData$activity)
+par(cex.main = 1)
+plot(my_df, main="")
+title(main="distribution of class labels per subject", outer = FALSE)
 barplot(t(as.matrix(my_df)), beside = TRUE, main = "number of datapoints for each activity per subject", col = c(3,4,6,7,3,1))
 legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2)
 ```
 
 ### boxplot
 - see the range of data for each feature
-- Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 ```{r boxplot, echo=TRUE}
 last_feature_index = dimdata[2]-2
 for (i in seq(1,last_feature_index, 50)) {
@@ -89,7 +82,8 @@ for (i in seq(1,last_feature_index, 50)) {
 ### Split data into training and test set
 - split by subjects
 - ramdomly select 80% for train and 20% for test
-```{r split, echo=TRUE}
+
+```{r split-function, echo=TRUE}
 
 split_data = function (data, seed) {
   set.seed(seed) # set seeed for reproducibility
@@ -97,22 +91,23 @@ split_data = function (data, seed) {
   training_ratio = 0.8
   n_train = floor(training_ratio*length(subject_list))
   trainning_subjects = sample(subject_list, n_train, replace = FALSE)
+  trainning_indices = which( data[,"subject"]%in%trainning_subjects)
   test_subjects = subject_list[!(subject_list%in%trainning_indices)]
   
-  trainning_indices = which( data[,"subject"]%in%trainning_subjects)
+  
   test_indices = which(!data[,"subject"]%in%trainning_subjects)
   
-  write.table(data, file = "data.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+  write.table(data, file = "samsungData_fixed-duplicated-columns.csv", row.names = FALSE, col.names = TRUE, sep = "," )
   
   write.table(data[trainning_indices,], file = "samsungData_fixed-duplicated-columns.train.csv", row.names = FALSE, col.names = TRUE, sep = "," )
   
   write.table(data[test_indices,], file = "samsungData_fixed-duplicated-columns.test.csv", row.names = FALSE, col.names = TRUE, sep = "," )
   
 }
+```
 
+```{r split}
 split_data(data = samsungData, seed = 123)
-
-
 ```
 
 ## Feature Selection
@@ -121,10 +116,35 @@ split_data(data = samsungData, seed = 123)
 - using Random forest in h2o.ai package
 - 10-fold cross-validation
 - use seed = 123 for reproducibility reason
-```{r feature-selection-random-forest, echo=TRUE}
+
+```{r start h2o, results='hide', eval=FALSE}
+# The following two commands remove any previously installed H2O packages for R.
+if ("package:h2o" %in% search()) { detach("package:h2o", unload=TRUE) }
+if ("h2o" %in% rownames(installed.packages())) { remove.packages("h2o") }
+
+# Next, we download packages that H2O depends on.
+if (! ("methods" %in% rownames(installed.packages()))) { install.packages("methods") }
+if (! ("statmod" %in% rownames(installed.packages()))) { install.packages("statmod") }
+if (! ("stats" %in% rownames(installed.packages()))) { install.packages("stats") }
+if (! ("graphics" %in% rownames(installed.packages()))) { install.packages("graphics") }
+if (! ("RCurl" %in% rownames(installed.packages()))) { install.packages("RCurl") }
+if (! ("jsonlite" %in% rownames(installed.packages()))) { install.packages("jsonlite") }
+if (! ("tools" %in% rownames(installed.packages()))) { install.packages("tools") }
+if (! ("utils" %in% rownames(installed.packages()))) { install.packages("utils") }
+
+# h2o_3.8.2.6
+install.packages("h2o", type="source", repos=(c("https://h2o-release.s3.amazonaws.com/h2o/rel-turchin/6/R")))
+```
+
+#### load h2o module and start h2o node in the local machine 
+```{r load h2o module}
 ## load modules and start h2o compute node
 library(h2o)
 localH2O = h2o.init(ip = "localhost",  startH2O = TRUE)
+```
+
+```{r feature-selection-random-forest,  results='hide'}
+# upload file to h2o 
 samsungData.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.train.csv")
 dim(samsungData.hex)
 ncol = dim(samsungData.hex)[2]
@@ -132,7 +152,15 @@ x = colnames(samsungData.hex)[-((ncol-1):ncol)]
 y = colnames(samsungData.hex)[ncol]
 
 # classification with random forest, and get the top most important features used
-model = h2o.randomForest(x, y, seed = 123, samsungData.hex, nfolds = 10)
+list_models = read.table("model_id.txt", sep="\t", header = FALSE, col.names = c('model', 'model_id'), stringsAsFactors = FALSE)
+rownames(list_models) = list_models[,1]
+list_models = list_models[-1]
+tryCatch ( {
+  model <<- h2o.getModel(list_models['full model',])},  # <<- save to global 
+  error=function(e) {
+    model <<- h2o.randomForest(x, y, seed = 123, samsungData.hex, nfolds = 10)
+    write(paste("full model",model@model_id, sep="\t"), "model_id.txt", append = TRUE)} )
+
 
 ```
 
@@ -148,60 +176,90 @@ h2o.confusionMatrix(model)
 ```
 
 #### select top features for to train classification models (random forest)
-```{r feature-selection-top}
+```{r feature-selection-top,  results='hide'}
 # select top features
 top5_important_feature = model@model$variable_importances$variable[1:5]
 top4_important_feature = model@model$variable_importances$variable[1:4]
 top3_important_feature = model@model$variable_importances$variable[1:3]
+top2_important_feature = model@model$variable_importances$variable[1:2]
+top1_important_feature = model@model$variable_importances$variable[1]
 
 ### Train models, starting from using top 3 importand features until 80% accuracy is acchieved
-model.with.3.features = h2o.randomForest(top3_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
-model.with.4.features = h2o.randomForest(top4_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
-model.with.5.features = h2o.randomForest(top5_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+
+tryCatch( {
+  model.with.1.features<<- h2o.getModel(list_models['1-featured model',])
+  model.with.2.features<<- h2o.getModel(list_models['2-featured model',])
+  model.with.3.features<<- h2o.getModel(list_models['3-featured model',])
+  model.with.4.features<<- h2o.getModel(list_models['4-featured model',])
+  model.with.5.features<<- h2o.getModel(list_models['5-featured model',])
+}, error = function(e) {
+  model.with.1.features <<- h2o.randomForest(top1_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.2.features <<- h2o.randomForest(top2_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.3.features <<- h2o.randomForest(top3_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.4.features <<- h2o.randomForest(top4_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.5.features <<- h2o.randomForest(top5_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
+  write(paste("1-featured model",model.with.1.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+    write(paste("2-featured model",model.with.2.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  write(paste("3-featured model",model.with.3.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  write(paste("4-featured model",model.with.4.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  write(paste("5-featured model",model.with.5.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  
+})
+
 
 ```
 
 #### accuracy plot
 ```{r compute-train-accuracy}
 accuracy = c()
-model_list = list( model.with.3.features,model.with.4.features, model.with.5.features,)
-for (i in 1:length(models)){
-  accuracy[i] = as.numeric(models[[i]]@model$cross_validation_metrics_summary['accuracy','mean'])
+model_list = list( model.with.1.features,model.with.2.features,model.with.3.features,model.with.4.features,model.with.5.features)
+for (i in 1:length(model_list)){
+  accuracy[i] = as.numeric(model_list[[i]]@model$cross_validation_metrics_summary['accuracy','mean'])
 }
 accuracy
 ```
 
 ```{r accuracy-plot}
-par(mfrow=c(1,1), mar=c(1,1,1,1), cex.axis = 0.8)
-plot(5:3, accuracy, type="l")
-abline(h = 0.8, lty=2)
-title("Accuracy of random forest models trained with different number of features", cex.main=0.8, xlab = "number of features", ylab = "accuracy")
+par(mfrow=c(1,1), cex.axis = 0.8)
+plot(1:5, accuracy, type="l", xlab = "")
+abline(h = 0.80, lty=2 )
+title("Accuracy of random forest models trained with different number of features", cex.main=0.8, xlab = "number of features", ylab = "accuracy", outer = FALSE)
 ```
 
 #### view the selected features
 - 5 features
 - classification accuracy >= 0.8
 ```{r view-selected-features}
-top5_important_feature
+for (i in 1:length(accuracy)){
+  this.accuracy = accuracy[i]
+  if (this.accuracy >= 0.8) {
+    num_features_selected <<- i
+    break
+  }
+}
+num_features_selected
+selected_model = model_list[num_features_selected]
+selected_features = top5_important_feature[1:num_features_selected]
 ```
 
 #### view the confusion matrix of model using 5 features
 ```{r view-train-confusion-matrix}
-h2o.confusionMatrix(model.with.5.features)
+h2o.confusionMatrix(selected_model)
 ```
 
 
 ### Test
 - using the 5 selected features
-```{r load-test-data-to-h2o}
+```{r load-test-data-to-h2o,results='hide'}
 samsungData.test.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.test.csv")
 dim(samsungData.test.hex)
 ncol = dim(samsungData.test.hex)[2]
-x = top5_important_feature
+x =selected_features
 y = colnames(samsungData.test.hex)[ncol]
 
 # classification of the test data with random forest
 model.test = h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
+write(paste("test_model",model.test@model_id, sep="\t"), "model_id.txt", append = TRUE)
 ```
 
 #### view the test results
@@ -221,4 +279,12 @@ test.accuracy
 
 
 
+
+
+------------------------------
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
