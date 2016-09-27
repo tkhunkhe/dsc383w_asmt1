@@ -27,10 +27,18 @@ dim(samsungData)
 colnames(samsungData)
 ```
 
+#### factorize the class labels
+```{r factor}
+samsungData[,dimdata[2]] = factor(samsungData[,dim(samsungData)[2]])
+# check if is factor
+is.factor(samsungData[,dimdata[2]])
+```
+
 #### Fix duplicated column names
 ```{r fix-duplicates}
 duplicated_index = which(duplicated(colnames(samsungData)))
 duplicated_columns =unique(colnames(samsungData)[(duplicated(colnames(samsungData)))])
+
 samsungData.new = samsungData[,!(duplicated(colnames(samsungData)))]
 dim(samsungData.new)
 
@@ -39,18 +47,20 @@ for (each in duplicated_columns){
   ind = which(colnames(samsungData)==each)
   colnames(samsungData)[ind]= unlist(lapply(1:length(ind), function(i) paste(colnames(samsungData)[ind[i]], i, sep=".") ))
 }
-head(colnames(samsungData)[duplicated_index])
+# view duplicated columns names
+colnames(samsungData)[duplicated_index]
+write(duplicated_index, "duplicated_column_indices.txt", sep="\n")
 
 ```
 
 ### summary of class label 
 ```{r check-class-label}
-summary(factor(samsungData[, dimdata[2]]))
+table(samsungData[, dimdata[2]])
 ```
 
 ### summary of subject numbers
 ```{r check-subject-numbers}
-summary(factor(samsungData[, dimdata[2]-1]))
+table(samsungData[, dimdata[2]-1])
 barplot(summary(factor(samsungData[, dimdata[2]-1])), cex.names =0.6)
 title("number of data points for each subject")
 ```
@@ -62,12 +72,31 @@ par(cex.main = 1)
 plot(my_df, main="")
 title(main="distribution of class labels per subject", outer = FALSE)
 barplot(t(as.matrix(my_df)), beside = TRUE, main = "number of datapoints for each activity per subject", col = c(3,4,6,7,3,1))
-legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2)
+legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2, cex = 0.5)
+```
+
+##### check balance
+```{r check balance}
+boxplot.matrix(t(my_df), xlab="subject", ylab="count", main="Number of instances per activity for each subject")
+lb  = c(names(which.max(my_df['1',])),names(which.max(my_df['30',])))
+text(c(1,21), c(max(my_df['1',]), max(my_df['30',])), lb, col="red", pos=c(4,3), cex=0.9)
+```
+
+- ggplot version
+```{r}
+## ggplot2
+library(reshape2)
+library(ggplot2)
+melted = melt(my_df)
+lab = c(names(which.max(my_df["1",])),names(which.max(my_df["30",])))
+where = c(max(my_df["1",]),max(my_df["30",]))
+ggplot(melted, aes(factor(Var1), value))+geom_boxplot()+labs(title = "Number of Instances Per Activity For Each Subject", x="subject", y="count")+geom_text(aes("1",where[1]+2), label=lab[1], color="blue")+geom_text(aes("30",where[2]+2), label=lab[2], color="blue")
+
 ```
 
 ### boxplot
 - see the range of data for each feature
-```{r boxplot, echo=TRUE}
+```{r boxplot: range of data for each feature, echo=TRUE}
 last_feature_index = dimdata[2]-2
 for (i in seq(1,last_feature_index, 50)) {
   if (i+50 < last_feature_index) {
@@ -77,6 +106,10 @@ for (i in seq(1,last_feature_index, 50)) {
   }
   boxplot(samsungData[,i:end], main=paste("[",i, ",",(i+50), "]"))
 }
+```
+#### boxplot
+```{r boxplot my_df}
+boxplot.matrix(my_df)
 ```
 
 ### Split data into training and test set
@@ -114,6 +147,7 @@ split_data(data = samsungData, seed = 123)
 
 ### Train
 - using Random forest in h2o.ai package
+- Does random forest perform worse with the normalized data?
 - 10-fold cross-validation
 - use seed = 123 for reproducibility reason
 
@@ -152,17 +186,22 @@ x = colnames(samsungData.hex)[-((ncol-1):ncol)]
 y = colnames(samsungData.hex)[ncol]
 
 # classification with random forest, and get the top most important features used
-list_models = read.table("model_id.txt", sep="\t", header = FALSE, col.names = c('model', 'model_id'), stringsAsFactors = FALSE)
+list_models = read.table("model_id.txt", sep="\t", header = FALSE,col.names = c('model', 'model_id'), stringsAsFactors = FALSE)
 rownames(list_models) = list_models[,1]
 list_models = list_models[-1]
+
+```
+
+```{r try full}
 tryCatch ( {
   model <<- h2o.getModel(list_models['full model',])},  # <<- save to global 
   error=function(e) {
     model <<- h2o.randomForest(x, y, seed = 123, samsungData.hex, nfolds = 10)
-    write(paste("full model",model@model_id, sep="\t"), "model_id.txt", append = TRUE)} )
+    write(paste("full model",model@model_id, sep="\t"), "model_id.txt", append = FALSE)} )
 
 
 ```
+
 
 #### baseline accuracy
 ##### confusion matrix
@@ -175,7 +214,29 @@ h2o.confusionMatrix(model)
 1 - h2o.confusionMatrix(model)['Totals','Error']
 ```
 
-#### select top features for to train classification models (random forest)
+### accuracy across cv
+```{r accuracy-model-cv}
+baseline_accuracy_cv = model@model$cross_validation_metrics_summary[,c('mean', 'sd')]
+baseline_accuracy = baseline_accuracy_cv['accuracy',]
+```
+
+### Hit ratio
+- what is it?
+
+###### check varimp across cv
+- The result confirmed that the algorithm selected the variables that are most common across 10-fold cross-validation
+```{r varimp-model}
+compared_top_imp_vars =matrix(nrow=5, ncol=0)
+for (m in h2o.cross_validation_models(model)){
+  compared_top_imp_vars = cbind(compared_top_imp_vars, h2o.varimp(m)$variable[1:5])
+}
+compared_top_imp_vars = cbind(compared_top_imp_vars,h2o.varimp(model)$variable[1:5])
+colnames(compared_top_imp_vars) = c(1:10, "selected")
+rownames(compared_top_imp_vars) = paste("var",c(1:5), sep="")
+t(as.data.frame(compared_top_imp_vars))
+```
+
+##### select top features for to train classification models (random forest)
 ```{r feature-selection-top,  results='hide'}
 # select top features
 top5_important_feature = model@model$variable_importances$variable[1:5]
@@ -199,7 +260,7 @@ tryCatch( {
   model.with.4.features <<- h2o.randomForest(top4_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
   model.with.5.features <<- h2o.randomForest(top5_important_feature, y, seed = 123, samsungData.hex, nfolds = 10)
   write(paste("1-featured model",model.with.1.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
-    write(paste("2-featured model",model.with.2.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  write(paste("2-featured model",model.with.2.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
   write(paste("3-featured model",model.with.3.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
   write(paste("4-featured model",model.with.4.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
   write(paste("5-featured model",model.with.5.features@model_id, sep="\t"), "model_id.txt", append = TRUE)
@@ -209,47 +270,68 @@ tryCatch( {
 
 ```
 
-#### accuracy plot
+#### Accuracy
 ```{r compute-train-accuracy}
-accuracy = c()
+accuracy = data.frame(0,0)
+colnames(accuracy) = c('mean','sd')
 model_list = list( model.with.1.features,model.with.2.features,model.with.3.features,model.with.4.features,model.with.5.features)
 for (i in 1:length(model_list)){
-  accuracy[i] = as.numeric(model_list[[i]]@model$cross_validation_metrics_summary['accuracy','mean'])
+  accuracy[i,] = as.numeric(model_list[[i]]@model$cross_validation_metrics_summary['accuracy',c('mean','sd')])
 }
+accuracy['all',] = as.numeric( baseline_accuracy)
 accuracy
 ```
 
+##### Accuracy plot
 ```{r accuracy-plot}
-par(mfrow=c(1,1), cex.axis = 0.8)
-plot(1:5, accuracy, type="l", xlab = "")
-abline(h = 0.80, lty=2 )
-title("Accuracy of random forest models trained with different number of features", cex.main=0.8, xlab = "number of features", ylab = "accuracy", outer = FALSE)
+# ggplot2
+x  = rownames(accuracy)
+y = accuracy[,1]
+sd = accuracy[,2]
+h = 0.8
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Accuracies of Models with Different Numbers of Features Used", x="number of features used", y="accuracy")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
+
 ```
 
 #### view the selected features
 - 5 features
 - classification accuracy >= 0.8
 ```{r view-selected-features}
-for (i in 1:length(accuracy)){
-  this.accuracy = accuracy[i]
+acc = accuracy[,"mean" ]
+for (i in 1:length(acc)){
+  this.accuracy = acc[i]
   if (this.accuracy >= 0.8) {
     num_features_selected <<- i
     break
   }
 }
 num_features_selected
-selected_model = model_list[num_features_selected]
+selected_model = model_list[[num_features_selected]]
 selected_features = top5_important_feature[1:num_features_selected]
 ```
 
-#### view the confusion matrix of model using 5 features
+#### view the confusion matrix of model using `r num_features_selected` features
 ```{r view-train-confusion-matrix}
 h2o.confusionMatrix(selected_model)
 ```
 
+#### accuracy across cv of the selected model
+```{r accuracy-selected-model-cv}
+selected_model@model$cross_validation_metrics_summary[,c('mean', 'sd')]
+```
+
+#### view details
+```{r details}
+selected_model@model$model_summary
+```
+##### view all stdout details
+```{r out}
+selected_model
+```
+
 
 ### Test
-- using the 5 selected features
+- using `r num_features_selected` selected features
 ```{r load-test-data-to-h2o,results='hide'}
 samsungData.test.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.test.csv")
 dim(samsungData.test.hex)
@@ -258,8 +340,12 @@ x =selected_features
 y = colnames(samsungData.test.hex)[ncol]
 
 # classification of the test data with random forest
-model.test = h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
-write(paste("test_model",model.test@model_id, sep="\t"), "model_id.txt", append = TRUE)
+tryCatch( {
+  model.test<<- h2o.getModel(list_models['test_model',])
+}, error = function(e) {
+  model.test <<- h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
+  write(paste("test_model",model.test@model_id, sep="\t"), "model_id.txt", append = TRUE)
+})
 ```
 
 #### view the test results
@@ -271,15 +357,50 @@ test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
 test.accuracy
 ```
 
-##### test accuracy
-```{r test-accuracy}
-test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
-test.accuracy
+## Compare Runtime in trainning and cross-validate
+- in milliseconds
+- baseline model: `r model@model$run_time`
+- model with 1-feature: `r model.with.1.features@model$run_time`
+- model with 2-feature: `r model.with.2.features@model$run_time`
+- model with 3-feature: `r model.with.3.features@model$run_time`
+- model with 4-feature: `r model.with.4.features@model$run_time`
+- model with 5-feature: `r model.with.5.features@model$run_time`
+```{r runtime}
+model@model$run_time
+temp = c()
+for (m in h2o.cross_validation_models(model)){
+  temp = c(temp, m@model$run_time)
+}
+print (c(mean(temp),sd(temp)))
+
+```
+
+```{r 1 to 5 featured models}
+results = data.frame(0,0)
+for (i in 1:length(model_list)){
+  m = model_list[[i]]
+  temp = c()
+  for (this.m in h2o.cross_validation_models(m)){
+    temp = c(temp, this.m@model$run_time)
+    #print (temp)
+  }
+  results[i,] = c(mean(temp), sd(temp))
+}
+colnames(results) = c("mean", "sd")
+results
 ```
 
 
 
+##### Save models to local machine
+```{r savemodel, eval=FALSE}
+h2o.saveModel(model,paste(getwd(), deparse(substitute(model)),sep="_"))
+for (m in model_list){
+  h2o.saveModel(m,paste(getwd(),deparse(substitute(m)), sep="_"))
+}
+h2o.saveModel(model.test,paste(getwd(),"model.test", sep="_"))
 
+```
 
 ------------------------------
 ## R Markdown
