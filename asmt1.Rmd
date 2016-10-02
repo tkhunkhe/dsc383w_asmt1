@@ -88,10 +88,19 @@ text(c(1,21), c(max(my_df['1',]), max(my_df['30',])), lb, col="red", pos=c(4,3),
 library(reshape2)
 library(ggplot2)
 melted = melt(my_df)
-lab = c(names(which.max(my_df["1",])),names(which.max(my_df["30",])))
-where = c(max(my_df["1",]),max(my_df["30",]))
-ggplot(melted, aes(factor(Var1), value))+geom_boxplot()+labs(title = "Number of Instances Per Activity For Each Subject", x="subject", y="count")+geom_text(aes("1",where[1]+2), label=lab[1], color="blue")+geom_text(aes("30",where[2]+2), label=lab[2], color="blue")
+colnames(melted)[1:2] = c("subject","activity")
+lab = c(names(which.max(my_df["1",])),names(which.max(my_df["15",])),names(which.max(my_df["30",])))
+where = c(max(my_df["1",]),max(my_df["15",]), max(my_df["30",]))
+ggplot(melted, aes(factor(subject), value))+geom_boxplot()+labs(title = "Number of Instances Per Activity For Each Subject", x="subject", y="count")+geom_text(aes("1",where[1]+2), label=lab[1], color="blue")+geom_text(aes("30",where[3]+2), label=lab[3], color="blue")+geom_text(aes("15",where[2]+2), label=lab[2], color="blue")
 
+```
+
+### ANOVA
+- p val > 0.5. Therefore, cannot reject H0 that means are equal at alpha = 0.05
+- therefore, we decided to split train and test groups by subjects
+```{r aov num of instances per activity per subject}
+my_df_aov = aov(value~factor(subject),data = melted)
+summary(my_df_aov)
 ```
 
 ### boxplot
@@ -112,6 +121,39 @@ for (i in seq(1,last_feature_index, 50)) {
 boxplot.matrix(my_df)
 ```
 
+### variance across samples per feature
+```{r variance}
+par(mfrow=c(1,1))
+var_per_feature = apply(samsungData[,1:561], 2, var)
+
+barplot(var_per_feature, axisnames = F, cex.names = 0.8, cex.axis = 0.8, xlab = "feature", main = "Variances")
+
+
+mean_per_feature = apply(samsungData[,1:561], 2, mean)
+
+barplot(mean_per_feature, axisnames = F, cex.names = 0.8, cex.axis = 0.8, xlab = "feature", main = "Means")
+
+
+cv_per_feature = apply(samsungData[,1:561], 2, function(x) sd(x)/mean(x))
+
+barplot(cv_per_feature, axisnames = F, cex.names = 0.8, cex.axis = 0.8, xlab = "feature", main = "CVs")
+
+abs_cv_per_feature = apply(samsungData[,1:561], 2, function(x) abs(sd(x)/mean(x)))
+
+barplot(abs_cv_per_feature, axisnames = F, cex.names = 0.8, cex.axis = 0.8, xlab = "feature", main = "Absolute CVs")
+
+sorted_variances = var_per_feature[order(var_per_feature, decreasing = T)] 
+
+sorted_abs_cvs = abs_cv_per_feature[order(abs_cv_per_feature, decreasing = T)] 
+
+# pick top 5
+top_5_sorted_variances = sorted_variances[1:5]
+top_5_sorted_abs_cvs = sorted_abs_cvs[1:5]
+names_top_5_sorted_variances = names(top_5_sorted_variances)
+names_top_5_sorted_abs_cvs = names(top_5_sorted_abs_cvs )
+```
+
+
 ### Split data into training and test set
 - split by subjects
 - ramdomly select 80% for train and 20% for test
@@ -124,11 +166,11 @@ split_data = function (data, seed) {
   training_ratio = 0.8
   n_train = floor(training_ratio*length(subject_list))
   trainning_subjects = sample(subject_list, n_train, replace = FALSE)
-  trainning_indices = which( data[,"subject"]%in%trainning_subjects)
+  trainning_indices <<- which( data[,"subject"]%in%trainning_subjects)
   test_subjects = subject_list[!(subject_list%in%trainning_indices)]
   
   
-  test_indices = which(!data[,"subject"]%in%trainning_subjects)
+  test_indices <<- which(!data[,"subject"]%in%trainning_subjects)
   
   write.table(data, file = "samsungData_fixed-duplicated-columns.csv", row.names = FALSE, col.names = TRUE, sep = "," )
   
@@ -199,7 +241,25 @@ tryCatch ( {
     model <<- h2o.randomForest(x, y, seed = 123, samsungData.hex, nfolds = 10)
     write(paste("full model",model@model_id, sep="\t"), "model_id.txt", append = FALSE)} )
 
+```
 
+### try no cross-validation
+```{r no cv}
+model_no_cross_validate = h2o.randomForest(x, y, seed = 123, samsungData.hex)
+```
+- cross-validated model
+```{r cross-validated model}
+vars_from_cv = h2o.varimp(model)[1:5,'variable']
+```
+- no-cross-validated model
+```{r no-cross-validated model}
+vars_from_no_cv = h2o.varimp(model_no_cross_validate)[1:5,'variable']
+identical(vars_from_cv, vars_from_no_cv) # true
+```
+##### compare runtime
+```{r runtime cv vs no-cv}
+model_no_cross_validate @model$run_time # 18 sec
+model@model$run_time # 25 sec
 ```
 
 
@@ -225,7 +285,7 @@ baseline_accuracy = baseline_accuracy_cv['accuracy',]
 
 ###### check varimp across cv
 - The result confirmed that the algorithm selected the variables that are most common across 10-fold cross-validation
-```{r varimp-model}
+```{r 10 fold varimp-model}
 compared_top_imp_vars =matrix(nrow=5, ncol=0)
 for (m in h2o.cross_validation_models(model)){
   compared_top_imp_vars = cbind(compared_top_imp_vars, h2o.varimp(m)$variable[1:5])
@@ -270,34 +330,138 @@ tryCatch( {
 
 ```
 
+```{r compare varimp-model}
+compared_top_imp_vars =matrix(nrow=5, ncol=0)
+for (m in h2o.cross_validation_models(model)){
+  compared_top_imp_vars = cbind(compared_top_imp_vars, h2o.varimp(m)$variable[1:5])
+}
+compared_top_imp_vars = cbind(compared_top_imp_vars,h2o.varimp(model)$variable[1:5])
+colnames(compared_top_imp_vars) = c(1:10, "selected")
+rownames(compared_top_imp_vars) = paste("var",c(1:5), sep="")
+t(as.data.frame(compared_top_imp_vars))
+```
+
+##### train with variable selected from filter method
+```{r filter-feature-selection-top,  results='hide'}
+# select top features
+top5_important_feature_filter_variance = names_top_5_sorted_variances
+top5_important_feature_filter_abs_cv = names_top_5_sorted_abs_cvs
+top4_important_feature_filter_variance = names_top_5_sorted_variances[1:4]
+top4_important_feature_filter_abs_cv = names_top_5_sorted_abs_cvs[1:4]
+top3_important_feature_filter_variance = names_top_5_sorted_variances[1:3]
+top3_important_feature_filter_abs_cv = names_top_5_sorted_abs_cvs[1:3]
+
+y = colnames(samsungData.hex)[ncol]
+tryCatch( {
+  # model.with.1.features<<- h2o.getModel(list_models['1-featured model',])
+  # model.with.2.features<<- h2o.getModel(list_models['2-featured model',])
+  # model.with.3.features<<- h2o.getModel(list_models['3-featured model',])
+  # model.with.4.features<<- h2o.getModel(list_models['4-featured model',])
+  model.with.5.features_filter_variance <<- h2o.getModel(list_models['5-featured model_filter_variance',])
+    model.with.5.features_filter_abs_cv <<- h2o.getModel(list_models['5-featured model_filter_cv',])
+      model.with.4.features_filter_variance <<- h2o.getModel(list_models['4-featured model_filter_variance',])
+    model.with.4.features_filter_abs_cv <<- h2o.getModel(list_models['4-featured model_filter_cv',])
+      model.with.3.features_filter_variance <<- h2o.getModel(list_models['3-featured model_filter_variance',])
+    model.with.3.features_filter_abs_cv <<- h2o.getModel(list_models['3-featured model_filter_cv',])
+    
+}, error = function(e) {
+  model.with.5.features_filter_variance <<- h2o.randomForest(top5_important_feature_filter_variance, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.5.features_filter_abs_cv <<- h2o.randomForest(top5_important_feature_filter_abs_cv, y, seed = 123, samsungData.hex, nfolds = 10)
+    model.with.4.features_filter_variance <<- h2o.randomForest(top4_important_feature_filter_variance, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.4.features_filter_abs_cv <<- h2o.randomForest(top4_important_feature_filter_abs_cv, y, seed = 123, samsungData.hex, nfolds = 10)
+    model.with.3.features_filter_variance <<- h2o.randomForest(top3_important_feature_filter_variance, y, seed = 123, samsungData.hex, nfolds = 10)
+  model.with.3.features_filter_abs_cv <<- h2o.randomForest(top3_important_feature_filter_abs_cv, y, seed = 123, samsungData.hex, nfolds = 10)
+  write(paste("5-featured model_filter_variance",model.with.5.features_filter_variance@model_id, sep="\t"), "model_id.txt", append = TRUE)
+    write(paste("5-featured model_filter_cv",model.with.5.features_filter_abs_cv@model_id, sep="\t"), "model_id.txt", append = TRUE)
+      write(paste("4-featured model_filter_variance",model.with.4.features_filter_variance@model_id, sep="\t"), "model_id.txt", append = TRUE)
+    write(paste("4-featured model_filter_cv",model.with.4.features_filter_abs_cv@model_id, sep="\t"), "model_id.txt", append = TRUE)
+      write(paste("3-featured model_filter_variance",model.with.3.features_filter_variance@model_id, sep="\t"), "model_id.txt", append = TRUE)
+    write(paste("3-featured model_filter_cv",model.with.3.features_filter_abs_cv@model_id, sep="\t"), "model_id.txt", append = TRUE)
+  
+})
+
+
+```
+
 #### Accuracy
+## RandomForest selected models
 ```{r compute-train-accuracy}
-accuracy = data.frame(0,0)
-colnames(accuracy) = c('mean','sd')
+accuracy.randForest = data.frame(0,0)
+colnames(accuracy.randForest) = c('mean','sd')
 model_list = list( model.with.1.features,model.with.2.features,model.with.3.features,model.with.4.features,model.with.5.features)
 for (i in 1:length(model_list)){
-  accuracy[i,] = as.numeric(model_list[[i]]@model$cross_validation_metrics_summary['accuracy',c('mean','sd')])
+  accuracy.randForest[i,] = as.numeric(model_list[[i]]@model$cross_validation_metrics_summary['accuracy',c('mean','sd')])
 }
-accuracy['all',] = as.numeric( baseline_accuracy)
-accuracy
+accuracy.randForest['all',] = as.numeric( baseline_accuracy)
+accuracy.randForest
 ```
 
 ##### Accuracy plot
 ```{r accuracy-plot}
 # ggplot2
-x  = rownames(accuracy)
-y = accuracy[,1]
-sd = accuracy[,2]
+x  = rownames(accuracy.randForest)
+y = accuracy.randForest[,1]
+sd = accuracy.randForest[,2]
 h = 0.8
 qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Accuracies of Models with Different Numbers of Features Used", x="number of features used", y="accuracy")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
 
 ```
 
+## filter selected models
+##### selected by variances
+```{r filter-compute-train-accuracy}
+accuracy = data.frame(0,0)
+colnames(accuracy) = c('mean','sd')
+model_list_var = list( model.with.3.features_filter_variance,model.with.4.features_filter_variance,model.with.5.features_filter_variance)
+for (i in 1:length(model_list_var)){
+  accuracy[i,] = as.numeric(model_list_var[[i]]@model$cross_validation_metrics_summary['accuracy',c('mean','sd')])
+}
+accuracy['all',] = as.numeric( baseline_accuracy)
+rownames(accuracy)[1:3] = 3:5 
+accuracy
+```
+
+- Accuracy plot
+```{r filter-accuracy-plot}
+# ggplot2
+x  = rownames(accuracy)
+y = accuracy[,1]
+sd = accuracy[,2]
+h = 0.8
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Accuracies of Models with Different Numbers of Most-variant Features Used", x="number of features used", y="accuracy")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
+
+```
+
+##### selected by absolute coeffients of variation (abs cv)
+```{r filter2-compute-train-accuracy}
+accuracy = data.frame(0,0)
+colnames(accuracy) = c('mean','sd')
+model_list_abs_cv = list( model.with.3.features_filter_abs_cv,model.with.4.features_filter_abs_cv,model.with.5.features_filter_abs_cv)
+for (i in 1:length(model_list_abs_cv)){
+  accuracy[i,] = as.numeric(model_list_abs_cv[[i]]@model$cross_validation_metrics_summary['accuracy',c('mean','sd')])
+}
+accuracy['all',] = as.numeric( baseline_accuracy)
+rownames(accuracy)[1:3] = 3:5 
+accuracy
+```
+
+- Accuracy plot
+```{r filter2-accuracy-plot}
+# ggplot2
+x  = rownames(accuracy)
+y = accuracy[,1]
+sd = accuracy[,2]
+h = 0.8
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Accuracies of Models with Different Numbers of Highest-Abs-CV Features Used", x="number of features used", y="accuracy")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
+
+```
+
+
 #### view the selected features
 - 5 features
 - classification accuracy >= 0.8
 ```{r view-selected-features}
-acc = accuracy[,"mean" ]
+acc = accuracy.randForest[,"mean" ]
 for (i in 1:length(acc)){
   this.accuracy = acc[i]
   if (this.accuracy >= 0.8) {
@@ -329,32 +493,104 @@ selected_model@model$model_summary
 selected_model
 ```
 
+## GLM 
+
+# train with the 3 features selected from Random Forest
+```{r glm}
+# y = colnames(samsungData.hex)[ncol]
+# is.factor(samsungData.hex[ncol])
+# #install.packages("ade4")
+# library(ade4)
+# y.array = acm.disjonctif(samsungData[ncol])
+# colnames(y.array) = names(summary(factor(samsungData[,ncol])))
+# samsungData.glm = samsungData
+# samsungData.glm = samsungData.glm[,-563] 
+# samsungData.glm = cbind(samsungData.glm , y.array)
+# write.table(samsungData.glm, file = "samsungData.glm.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+# 
+#   write.table(samsungData.glm[trainning_indices,], file = "samsungData.glm.train.csv", row.names = FALSE, col.names = TRUE, sep = "," )  
+# 
+#   write.table(samsungData.glm[test_indices,], file = "samsungData.glm.test.csv", row.names = FALSE, col.names = TRUE, sep = "," )
+# 
+# samsungData.hex.glm  = h2o.uploadFile("samsungData.glm.train.csv")
+# 
+# ### how to do glm -- > multi label !!
+# glm.model.train = h2o.glm(x=top3_important_feature, y = colnames(y.array), training_frame = samsungData.hex.glm, family = "binomial")
+# 
+# library(nnet)
+# top3_important_feature
+# ind = match(top3_important_feature, colnames(samsungData))
+# indexed_samsumData = samsungData
+# colnames(indexed_samsumData) = make.names(colnames(samsungData), unique = TRUE)
+# top3_important_feature_glm = colnames(indexed_samsumData) [ind]
+# train.glm = multinom(activity ~ tGravityAcc.mean...Y + tGravityAcc.min...X +angle.X.gravityMean.,data=indexed_samsumData[trainning_indices,])
+# 
+# z <- summary(train.glm)$coefficients/summary(train.glm)$standard.errors
+# z
+# #2-tailed z test
+# p <- (1 - pnorm(abs(z), 0, 1))*2
+# p # how does this work?
+# exp(coef(train.glm))
+# head(pp <- fitted(train.glm))
+# 
+# d.samsungData.train = indexed_samsumData[trainning_indices,c(42,53,559,563)]
+# 
+# train.predicted.glm = predict(train.glm, newdata = d.samsungData.train )
+# 
+# ## confusion matrix
+# table(train.predicted.glm, indexed_samsumData[trainning_indices,563])
+# 
+# # accuracy
+# sum(train.predicted.glm==indexed_samsumData[trainning_indices,563])/length(train.predicted.glm)
+# 
+# 
+# ############## don't touch this
+# 
+# d.samsungData.test = indexed_samsumData[test_indices,c(42,53,559,563)]
+# 
+# test.predicted.glm = predict(train.glm, newdata = d.samsungData.test )
+
+
+```
+
 
 ### Test
 - using `r num_features_selected` selected features
-```{r load-test-data-to-h2o,results='hide'}
+```{r load-test-data-to-h2o}
 samsungData.test.hex = h2o.uploadFile(path = "samsungData_fixed-duplicated-columns.test.csv")
 dim(samsungData.test.hex)
-ncol = dim(samsungData.test.hex)[2]
-x =selected_features
-y = colnames(samsungData.test.hex)[ncol]
+# ncol = dim(samsungData.test.hex)[2]
+# x =selected_features
+# y = colnames(samsungData.test.hex)[ncol]
+# 
+# # classification of the test data with random forest
+# tryCatch( {
+#   model.test<<- h2o.getModel(list_models['test_model',])
+# }, error = function(e) {
+#   model.test <<- h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
+#   write(paste("test_model",model.test@model_id, sep="\t"), "model_id.txt", append = TRUE)
+# })
 
-# classification of the test data with random forest
-tryCatch( {
-  model.test<<- h2o.getModel(list_models['test_model',])
-}, error = function(e) {
-  model.test <<- h2o.randomForest(x, y, seed = 123, samsungData.test.hex)
-  write(paste("test_model",model.test@model_id, sep="\t"), "model_id.txt", append = TRUE)
-})
+# prediction time
+ptm <- proc.time() # start timer
+test.predicted = h2o.predict(model.with.3.features, newdata = samsungData.test.hex)
+proc.time() - ptm # elapsed is the 'real' time
+
+# accuracy
+test.accuracy = sum(test.predicted[,'predict']==samsungData.test.hex[,ncol])/dim(samsungData.test.hex[,ncol])[1]
+test.accuracy
+# confusion matrix
+table(as.matrix(test.predicted[,'predict']),as.matrix(samsungData.test.hex[,ncol]))# need as.marix because h2o's result is environment and can't be put in table
+
 ```
 
 #### view the test results
 
 ##### confusion matrix
 ```{r confusion-matrix}
-h2o.confusionMatrix(model.test)
-test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
-test.accuracy
+# h2o.confusionMatrix(model.test)
+# test.accuracy = 1 - h2o.confusionMatrix(model.test)['Totals', 'Error']
+# test.accuracy
 ```
 
 ## Compare Runtime in trainning and cross-validate
@@ -365,7 +601,7 @@ test.accuracy
 - model with 3-feature: `r model.with.3.features@model$run_time`
 - model with 4-feature: `r model.with.4.features@model$run_time`
 - model with 5-feature: `r model.with.5.features@model$run_time`
-```{r runtime}
+```{r model runtime}
 model@model$run_time
 temp = c()
 for (m in h2o.cross_validation_models(model)){
@@ -391,6 +627,79 @@ results
 ```
 
 
+## Compare model sizes in trainning and cross-validate
+- in bytes
+- sizes are not significantly different
+```{r size}
+object.size(model)
+temp = c()
+for (m in h2o.cross_validation_models(model)){
+  temp = c(temp, object.size(m))
+}
+print (c(mean(temp),sd(temp)))
+
+```
+
+```{r size 1 to 5 featured models}
+results = data.frame()
+for (i in 1:length(model_list)){
+  m = model_list[[i]]
+  for (this.m in h2o.cross_validation_models(m)){
+    results = rbind.data.frame(results, c(object.size(this.m), i))
+  }
+}
+
+colnames(results) = c("size", "group")
+results$group = factor(results$group)
+results
+reduced_means = aggregate(x=results$size,by= list(results$group), FUN = mean)
+reduced_sd = aggregate(x=results$size,by= list(results$group), FUN = sd)
+reduced_results = cbind.data.frame(reduced_means$x, reduced_sd$x)
+colnames(reduced_results) = c("mean", "sd")
+
+x  = rownames(reduced_results)
+y = reduced_results[,1]
+sd = reduced_results[,2]
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Model size of models with different number of features (1-5)", x="number of features used", y="bytes")+scale_y_continuous(limits = c(min(results$size), max(results$size)))
+
+
+```
+
+```{r reduced model anova}
+selected_aov = aov(size ~ factor(group), data = results)
+selected_aov
+summary(selected_aov)
+```
+
+###### between reduced vs not reduced
+```{r reduced vs full anova}
+full_vs_reduce = results
+full_vs_reduce$group = as.character(full_vs_reduce$group )
+for (m in h2o.cross_validation_models(model)){
+  full_vs_reduce= rbind.data.frame(full_vs_reduce, c(object.size(m), "all"))
+}
+full_vs_reduce$size= as.numeric(full_vs_reduce$size )
+
+
+all_means = aggregate(x=full_vs_reduce$size,by= list(full_vs_reduce$group), FUN = mean)
+all_sd = aggregate(x=full_vs_reduce$size,by= list(full_vs_reduce$group), FUN = sd)
+all_results = cbind.data.frame(all_means$x, all_sd$x)
+colnames(all_results) = c("mean", "sd")
+rownames(all_results) = all_means$Group.1
+
+x  = rownames( all_results)
+y =  all_results[,1]
+sd =  all_results[,2]
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Model size of models with different numbers of features", x="number of features used", y="bytes")+scale_y_continuous(limits = c(min(full_vs_reduce$size), max(full_vs_reduce$size)))
+```
+
+```{r full model anova}
+## aov
+full_aov = aov(size ~ factor(group), data = full_vs_reduce)
+full_aov
+summary(full_aov)
+```
+
 
 ##### Save models to local machine
 ```{r savemodel, eval=FALSE}
@@ -399,6 +708,12 @@ for (m in model_list){
   h2o.saveModel(m,paste(getwd(),deparse(substitute(m)), sep="_"))
 }
 h2o.saveModel(model.test,paste(getwd(),"model.test", sep="_"))
+for (m in model_list_var){
+  h2o.saveModel(m,paste(getwd(),deparse(substitute(m)), sep="_"))
+}
+for (m in model_list_abs_cv){
+  h2o.saveModel(m,paste(getwd(),deparse(substitute(m)), sep="_"))
+}
 
 ```
 
