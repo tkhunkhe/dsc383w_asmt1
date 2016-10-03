@@ -84,6 +84,7 @@ text(c(1,21), c(max(my_df['1',]), max(my_df['30',])), lb, col="red", pos=c(4,3),
 
 - ggplot version
 ```{r}
+
 ## ggplot2
 library(reshape2)
 library(ggplot2)
@@ -95,12 +96,30 @@ ggplot(melted, aes(factor(subject), value))+geom_boxplot()+labs(title = "Number 
 
 ```
 
+## distribution of activities per subject
+```{r}
+
+my_df.2 = t(apply(my_df, 1, function(x) x/sum(x)))
+melted.2 = melt(my_df.2)
+colnames(melted.2)[1:2] = c("subject","activity")
+lab = c(names(which.max(my_df["1",])),names(which.max(my_df["15",])),names(which.max(my_df["30",])))
+where = c(max(my_df["1",]),max(my_df["15",]), max(my_df["30",]))
+ggplot(melted.2, aes(factor(subject), value))+geom_boxplot()+labs(x="subject", y="ratio")+scale_y_continuous()
+melted.2$subject = factor(melted.2$subject)
+summary(aov(value ~ subject, data = melted.2))
+
+```
+
+
 ### ANOVA
 - p val > 0.5. Therefore, cannot reject H0 that means are equal at alpha = 0.05
 - therefore, we decided to split train and test groups by subjects
 ```{r aov num of instances per activity per subject}
 my_df_aov = aov(value~factor(subject),data = melted)
 summary(my_df_aov)
+
+my_df_aov.2 = aov(value~factor(activity),data = melted)
+summary(my_df_aov.2)
 ```
 
 ### boxplot
@@ -624,7 +643,7 @@ sd = as.numeric(c(0,0,accuracy.randForest[3,]$sd,baseline_accuracy$sd))
 group = as.factor(c("test", "test", "train", "train"))
 test.accuracy.df = data.frame(x=x,y=y,group=group)
 
-qplot(test.accuracy.df$x,test.accuracy.df$y, color=test.accuracy.df$group)+labs( x="number of features used", y="Accuracy")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+ scale_colour_discrete(name = "dataset")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
+qplot(test.accuracy.df$x,test.accuracy.df$y, color=test.accuracy.df$group, shape=test.accuracy.df$group)+labs( x="number of features used", y="Accuracy")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+ scale_colour_discrete(guide=F)+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))+scale_shape_discrete(name = "dataset")
 
 ```
 
@@ -635,8 +654,14 @@ percent_reduction_reduced = c((test.accuracy -as.numeric(accuracy.randForest[3,]
 names(percent_reduction_reduced ) = c("mean", "sd")
 percent_reduction_full =  c((test.accuracy.baseline - as.numeric( baseline_accuracy$mean))*100/as.numeric( baseline_accuracy$mean), as.numeric( baseline_accuracy$sd))
 names(percent_reduction_full ) = c("mean", "sd")
+
+percent_diff_test = (test.accuracy - test.accuracy.baseline)*100/ test.accuracy.baseline
+percent_diff_train = (as.numeric(accuracy.randForest[3,]$mean) - as.numeric(baseline_accuracy$mean))*100/as.numeric(baseline_accuracy$mean)
 percent_reduction_reduced  
 percent_reduction_full
+percent_diff_train
+percent_diff_test
+
 ```
 
 
