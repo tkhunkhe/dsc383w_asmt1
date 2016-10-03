@@ -502,6 +502,8 @@ selected_features = top5_important_feature[1:num_features_selected]
 #### view the confusion matrix of model using `r num_features_selected` features
 ```{r view-train-confusion-matrix}
 h2o.confusionMatrix(selected_model)
+mean(h2o.confusionMatrix(selected_model)[,'Error'])
+sd(h2o.confusionMatrix(selected_model)[,'Error'])
 ```
 
 #### accuracy across cv of the selected model
