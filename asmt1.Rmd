@@ -624,7 +624,7 @@ sd = as.numeric(c(0,0,accuracy.randForest[3,]$sd,baseline_accuracy$sd))
 group = as.factor(c("test", "test", "train", "train"))
 test.accuracy.df = data.frame(x=x,y=y,group=group)
 
-qplot(test.accuracy.df$x,test.accuracy.df$y, color=test.accuracy.df$group)+labs( x="number of features used", y="Accuracy")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+ scale_colour_discrete(name = "dataset")
+qplot(test.accuracy.df$x,test.accuracy.df$y, color=test.accuracy.df$group)+labs( x="number of features used", y="Accuracy")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+ scale_colour_discrete(name = "dataset")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
 
 ```
 
