@@ -70,7 +70,7 @@ title("number of data points for each subject")
 my_df = table(samsungData$subject, samsungData$activity)
 par(cex.main = 1)
 plot(my_df, main="")
-title(main="distribution of class labels per subject", outer = FALSE)
+title(main="Distribution of Number of Records of Each Activity For Each Subject", outer = FALSE)
 barplot(t(as.matrix(my_df)), beside = TRUE, main = "number of datapoints for each activity per subject", col = c(3,4,6,7,3,1))
 legend("topright", colnames(my_df), col = c(3,4,6,7,3,1), lty = 1, lwd = 2, cex = 0.5)
 ```
@@ -151,6 +151,12 @@ top_5_sorted_variances = sorted_variances[1:5]
 top_5_sorted_abs_cvs = sorted_abs_cvs[1:5]
 names_top_5_sorted_variances = names(top_5_sorted_variances)
 names_top_5_sorted_abs_cvs = names(top_5_sorted_abs_cvs )
+```
+
+### view the top 5
+```{r view}
+top_5_sorted_variances
+top_5_sorted_abs_cvs
 ```
 
 
@@ -574,7 +580,9 @@ dim(samsungData.test.hex)
 # prediction time
 ptm <- proc.time() # start timer
 test.predicted = h2o.predict(model.with.3.features, newdata = samsungData.test.hex)
-proc.time() - ptm # elapsed is the 'real' time
+t.reduced = proc.time() - ptm # elapsed is the 'real' time
+t.reduced
+#summary(test.predicted)
 
 # accuracy
 test.accuracy = sum(test.predicted[,'predict']==samsungData.test.hex[,ncol])/dim(samsungData.test.hex[,ncol])[1]
@@ -583,6 +591,54 @@ test.accuracy
 table(as.matrix(test.predicted[,'predict']),as.matrix(samsungData.test.hex[,ncol]))# need as.marix because h2o's result is environment and can't be put in table
 
 ```
+
+#### compare with baseline
+```{r baseline test}
+ptm <- proc.time() # start timer
+test.predicted.baseline = h2o.predict(model, newdata = samsungData.test.hex)
+t.baseline = proc.time() - ptm # elapsed is the 'real' time
+t.baseline
+#summary(test.predicted.baseline)
+
+# accuracy
+test.accuracy.baseline = sum(test.predicted.baseline[,'predict']==samsungData.test.hex[,ncol])/dim(samsungData.test.hex[,ncol])[1]
+test.accuracy.baseline
+# confusion matrix
+table(as.matrix(test.predicted.baseline[,'predict']),as.matrix(samsungData.test.hex[,ncol]))# need as.marix because h2o's result is environment and can't be put in table
+
+```
+- test accuracy: reduced model = `test.accuracy`
+- test accuracy: full model = `test.accuracy.baseline`
+- train accuracy: reduced model = `accuracy.randForest[3,]`
+- train accuracy: full model = `accuracy.randForest[3,]`
+
+### anova accuracy
+```{r accuracy test vs train}
+test.accuracy
+test.accuracy.baseline
+accuracy.randForest[3,]
+baseline_accuracy
+x = c(3, "all", 3,"all")
+y = as.numeric(c(test.accuracy, test.accuracy.baseline,accuracy.randForest[3,]$mean,baseline_accuracy$mean))
+sd = as.numeric(c(0,0,accuracy.randForest[3,]$sd,baseline_accuracy$sd))
+group = as.factor(c("test", "test", "train", "train"))
+test.accuracy.df = data.frame(x=x,y=y,group=group)
+
+qplot(test.accuracy.df$x,test.accuracy.df$y, color=test.accuracy.df$group)+labs( x="number of features used", y="Accuracy")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+ scale_colour_discrete(name = "dataset")+geom_hline(yintercept = h,lty = "dashed",show.legend = TRUE )+geom_text(aes("all",h,label = "threshold = 0.8", vjust = -1))
+
+```
+
+#### Reduction percentage
+```{r percent reduced}
+
+percent_reduction_reduced = c((test.accuracy -as.numeric(accuracy.randForest[3,]$mean) )*100/as.numeric(accuracy.randForest[3,]$mean),as.numeric(accuracy.randForest[3,]$sd))
+names(percent_reduction_reduced ) = c("mean", "sd")
+percent_reduction_full =  c((test.accuracy.baseline - as.numeric( baseline_accuracy$mean))*100/as.numeric( baseline_accuracy$mean), as.numeric( baseline_accuracy$sd))
+names(percent_reduction_full ) = c("mean", "sd")
+percent_reduction_reduced  
+percent_reduction_full
+```
+
 
 #### view the test results
 
@@ -601,29 +657,72 @@ table(as.matrix(test.predicted[,'predict']),as.matrix(samsungData.test.hex[,ncol
 - model with 3-feature: `r model.with.3.features@model$run_time`
 - model with 4-feature: `r model.with.4.features@model$run_time`
 - model with 5-feature: `r model.with.5.features@model$run_time`
-```{r model runtime}
-model@model$run_time
-temp = c()
-for (m in h2o.cross_validation_models(model)){
-  temp = c(temp, m@model$run_time)
+
+
+```{r runtime size 1 to 5 featured models}
+results = data.frame()
+for (i in 1:length(model_list)){
+  m = model_list[[i]]
+  for (this.m in h2o.cross_validation_models(m)){
+    results = rbind.data.frame(results, c(this.m@model$run_time, i))
+  }
 }
-print (c(mean(temp),sd(temp)))
+
+colnames(results) = c("runtime", "group")
+results$group = factor(results$group)
+results
+reduced_means = aggregate(x=results$runtime,by= list(results$group), FUN = mean)
+reduced_sd = aggregate(x=results$runtime,by= list(results$group), FUN = sd)
+reduced_results = cbind.data.frame(reduced_means$x, reduced_sd$x)
+colnames(reduced_results) = c("mean", "sd")
+```
+
+```{r runtime plot compare 1}
+x  = rownames(reduced_results)
+y = reduced_results[,1]
+sd = reduced_results[,2]
+qplot(x,y)+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)+labs(title = "Runtimes of models with different number of features (1-5)", x="number of features used", y="runtime(msecs)")
+
 
 ```
 
-```{r 1 to 5 featured models}
-results = data.frame(0,0)
-for (i in 1:length(model_list)){
-  m = model_list[[i]]
-  temp = c()
-  for (this.m in h2o.cross_validation_models(m)){
-    temp = c(temp, this.m@model$run_time)
-    #print (temp)
-  }
-  results[i,] = c(mean(temp), sd(temp))
+- runtime is not equal
+```{r runtime reduced model anova}
+selected_aov = aov(runtime ~ factor(group), data = results)
+selected_aov
+summary(selected_aov)
+```
+
+###### between reduced vs not reduced
+```{r runtime reduced vs full anova}
+full_vs_reduce = results
+full_vs_reduce$group = as.character(full_vs_reduce$group )
+for (m in h2o.cross_validation_models(model)){
+  full_vs_reduce= rbind.data.frame(full_vs_reduce, c(m@model$run_time, "all"))
 }
-colnames(results) = c("mean", "sd")
-results
+full_vs_reduce$runtime= as.numeric(full_vs_reduce$runtime )
+
+
+all_means = aggregate(x=full_vs_reduce$runtime,by= list(full_vs_reduce$group), FUN = mean)
+all_sd = aggregate(x=full_vs_reduce$runtime,by= list(full_vs_reduce$group), FUN = sd)
+all_results = cbind.data.frame(all_means$x, all_sd$x)
+colnames(all_results) = c("mean", "sd")
+rownames(all_results) = all_means$Group.1
+```
+
+```{r runtime plot compare 2}
+x  = rownames( all_results)
+y =  all_results[,1]
+sd =  all_results[,2]
+qplot(x,y)+labs(title = "Runtimes of models with different numbers of features", x="number of features used", y="runtime (msecs)")+geom_errorbar(aes(x=x, ymin=y-sd, ymax=y+sd), width=0.25)
+```
+
+- runtime is not equal
+```{r runtime full model anova}
+## aov
+full_aov = aov(runtime ~ factor(group), data = full_vs_reduce)
+full_aov
+summary(full_aov)
 ```
 
 
@@ -656,7 +755,9 @@ reduced_means = aggregate(x=results$size,by= list(results$group), FUN = mean)
 reduced_sd = aggregate(x=results$size,by= list(results$group), FUN = sd)
 reduced_results = cbind.data.frame(reduced_means$x, reduced_sd$x)
 colnames(reduced_results) = c("mean", "sd")
+```
 
+```{r plot size compare 1}
 x  = rownames(reduced_results)
 y = reduced_results[,1]
 sd = reduced_results[,2]
@@ -686,7 +787,9 @@ all_sd = aggregate(x=full_vs_reduce$size,by= list(full_vs_reduce$group), FUN = s
 all_results = cbind.data.frame(all_means$x, all_sd$x)
 colnames(all_results) = c("mean", "sd")
 rownames(all_results) = all_means$Group.1
+```
 
+```{r plot size compare 2}
 x  = rownames( all_results)
 y =  all_results[,1]
 sd =  all_results[,2]
